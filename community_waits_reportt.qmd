@@ -62,11 +62,18 @@ threshold <- 50
 # Waiting time target (weeks)
 waiting_time_target <- 52
 
-# target to achieve
+# primary target to achieve
 # NOTE: It is not possible to calculate 100% achievement
 target <- 0.99
 
 achievement_value <- qexp(target)
+
+# secondary waiting list target (18 weeks)
+waiting_time_target_18 <- 18
+
+# secondary target to achieve
+# NOTE: It is not possible to calculate 100% achievement
+target_18 <- 0.92
 
 target_date <- as.Date("2026-03-31")
 
@@ -165,7 +172,20 @@ df_prop <- df |>
   ),
   "Less than 52",
   "More than 52"
-  )) |>
+  ),
+  waits_18 = if_else(question %in% c(
+    "Waiting 0-1 weeks",
+    "Waiting >1-2 weeks",
+    "Waiting >2-4 weeks",
+    "Waiting >4-12 weeks",
+    "Waiting >12-18 weeks"
+  ),
+  "Less than 18",
+  "More than 18"
+  )) 
+
+
+df_prop_52 <- df_prop |>
   summarise(
     metric_value = sum(metric_value),
     .by = c(
@@ -186,8 +206,30 @@ df_prop <- df |>
   ) |>
   mutate(perc = if_else(is.nan(perc), 0, perc))
 
+df_prop_18 <- df_prop |>
+  summarise(
+    metric_value = sum(metric_value),
+    .by = c(
+      month,
+      waits_18,
+      org_name,
+      service
+    )
+  ) |>
+  mutate(
+    total = sum(metric_value),
+    perc = metric_value / total * 100,
+    .by = c(
+      month,
+      org_name,
+      service
+    )
+  ) |>
+  mutate(perc = if_else(is.nan(perc), 0, perc))
+
+
 # filter our dataframe to just those over 52 weeks
-over_52 <- df_prop |>
+over_52 <- df_prop_52 |>
   filter(
     waits_52 == "More than 52",
     metric_value > 0
@@ -196,6 +238,19 @@ over_52 <- df_prop |>
     org_name,
     -perc
   )
+
+# filter our dataframe to just those over 52 weeks
+over_18 <- df_prop_18 |>
+  filter(
+    waits_18 == "Less than 18",
+    perc < 92,
+    metric_value > 0
+  ) |>
+  arrange(
+    org_name,
+    -perc
+  )
+
 
 # make a pretty table of our over 52 week waits
 over_52_tab <-  function (org) {
@@ -520,6 +575,14 @@ df_model |>
     additional_capacity = "(vi) Relief capacity", # capacity
     tar_capacity = "(vii) Stable capacity" # capacity
   ) |>
+    tab_style(
+    style = list(
+      cell_fill(color = "#CCA00F", alpha = 0.5)
+    ),
+    locations = cells_body(
+      rows = dq_tag == 1
+    )
+  ) |>
   tab_style(
     style = list(
       cell_fill(color = "#CCA00F", alpha = 0.5)
@@ -544,7 +607,7 @@ df_model |>
     labels = T
   ) |>
   tab_header(
-    title = paste0(org, ": Community Services waits as at ", format(latest_date, "%B %y")),
+    title = paste0(org, ": Community Services waits as at ", format(latest_date, "%B %y"), " : Analysis to Achieve zero at 52 weeks target"),
     subtitle = md("Waiting lists by service with waiting list metrics")
   ) |>
   tab_footnote(
@@ -596,7 +659,9 @@ df_model |>
 
 
 # 12 month forecast dates
-dts <- data.frame(date = seq.Date(latest_date %m+% months(1), by = "month", length.out = 12))
+dts <- data.frame(date = seq.Date(from = latest_date %m+% months(1),
+                                  to = target_date,
+                                  by = "month"))
 
 # create dataframe with blank dates to insert predictions
 trajectory <- crossing(df_model, dts)
