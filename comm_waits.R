@@ -29,37 +29,37 @@ target_date <- as.Date ('2026-03-31')
 
 serv <- "udalsyndataprod.sql.azuresynapse.net"
 db <- "UDAL_Warehouse"
-
-con_udal <- DBI::dbConnect(drv = odbc::odbc(),
-                           driver = "ODBC Driver 17 for SQL Server",
-                           server = serv ,
-                           database = "UDAL_Warehouse",
-                           authentication = "ActiveDirectoryInteractive")
-
-dat <- DBI::dbGetQuery(conn = con_udal, statement = paste0("
-
-SELECT  [Period]
-      ,[Month]
-      ,[OrgRef]
-      ,[OrgName]
-      ,c.[Region_Name]
-      ,[STP_Code]
-      ,[STP_Name]
-      ,[Service]
-      ,[ServiceType]
-      ,[MetricID] 
-      ,[MetricDescription] as Question
-      ,[TextResponses]
-      ,[MetricValue],
-	  h.*
-  FROM [Reporting_SEFT_Sitreps_Published].[CommunityHealthServicesSitRep]  as c
-
-  left join (select distinct icb_code, integrated_care_board_name, region_name from [Reporting_UKHD_ODS].[Provider_Hierarchies_ICB] where effective_to is null ) as h
-on c.stp_code = h.icb_code
-  
-  where month > DATEADD(mm,-40,GETDATE()) and
-  h.region_name = '", region  ,"'"                  
-))
+# 
+# con_udal <- DBI::dbConnect(drv = odbc::odbc(),
+#                            driver = "ODBC Driver 17 for SQL Server",
+#                            server = serv ,
+#                            database = "UDAL_Warehouse",
+#                            authentication = "ActiveDirectoryInteractive")
+# 
+# dat <- DBI::dbGetQuery(conn = con_udal, statement = paste0("
+# 
+# SELECT  [Period]
+#       ,[Month]
+#       ,[OrgRef]
+#       ,[OrgName]
+#       ,c.[Region_Name]
+#       ,[STP_Code]
+#       ,[STP_Name]
+#       ,[Service]
+#       ,[ServiceType]
+#       ,[MetricID] 
+#       ,[MetricDescription] as Question
+#       ,[TextResponses]
+#       ,[MetricValue],
+# 	  h.*
+#   FROM [Reporting_SEFT_Sitreps_Published].[CommunityHealthServicesSitRep]  as c
+# 
+#   left join (select distinct icb_code, integrated_care_board_name, region_name from [Reporting_UKHD_ODS].[Provider_Hierarchies_ICB] where effective_to is null ) as h
+# on c.stp_code = h.icb_code
+#   
+#   where month > DATEADD(mm,-40,GETDATE()) and
+#   h.region_name = '", region  ,"'"                  
+# ))
 
 # clean names
 df <- clean_names(dat) |>
@@ -117,7 +117,8 @@ df_prop <- df |>
   mutate(perc = if_else(is.nan(perc), 0, perc))
 
 # filter our dataframe to just those over 52 weeks
-over_52 <- df_prop |>
+fun <- function() {
+  over_52 <- df_prop |>
   filter(waits_52 == 'More than 52',
          metric_value > 0) |>
   arrange(org_name, 
@@ -156,8 +157,11 @@ over_52_tab <- over_52 |>
     perc = "Percentage over 52 wks",
     perc_bar = " "
   ) 
-  
+
 over_52_tab
+}
+  
+fun()
 
 
 # create weekly referral distributions
@@ -254,9 +258,13 @@ df_summary <- df_wait |>
 # WL Model #
 ############
 
-wks_to_target <- as.numeric(round(difftime(strptime(target_date, format = "%Y-%m-%d"),
+fun_2 <- function(){
+  wks_to_target <- as.numeric(round(difftime(strptime(target_date, format = "%Y-%m-%d"),
          strptime(latest_date, format = "%Y-%m-%d"),units="weeks"),0))
+  wks_to_target
+}
 
+wks_to_target <- fun_2
 
 df_model <- df_summary |>
   mutate(wl_load = calc_queue_load(mean_ref, mean_removals),
@@ -529,115 +537,53 @@ sim_func <- function(run_id) {
 }
 
 
-i <- 1
-
-create_peformance_dataframe <- function(i)  {
-
-# filter data to an iteration
-iteration <- wl_model |>
-  filter(row_no == i)
-
-# create a wl dataframe of current size
-current_wl1 <-
-  data.frame(
-    Referral = rep(latest_date, iteration$total_waits[1]), 
-    Removal = rep(as.Date(NA), iteration$total_waits[1])
-  )
-
-# create a sequence of 50 iterations for monte carlo analysis
-run_sequence <- 1:50
-
-# run sim function n times to get monte carlo results
-stoc_preds <- lapply(run_sequence, sim_func)
-
-# pull the predictions
-mc_bind <- do.call("rbind", stoc_preds)
-
-# calculate means and quantiles
-mc_agg <-
-  aggregate(
-    queue_size ~ dates
-    , data = mc_bind
-    , FUN = \(x) {
-      c(mean_q = mean(x),
-        median_q = median(x),
-        lower_95CI = mean(x) -  (1.96 * (sd(x) / sqrt(length(x)))),
-        upper_95CI = mean(x) +  (1.96 * (sd(x) / sqrt(length(x)))),
-        q_25 = quantile(x, .025, names = FALSE),
-        q_75 = quantile(x, .975, names = FALSE))
-    }
-  )
-
-# put aggreagtes into dataframe
-mc_agg <- data.frame(dates = as.Date(mc_agg$dates), unlist(mc_agg$queue_size))
-
-# reformat dates to end of month
-mc_agg <- mc_agg |>
-  filter(day(dates) == day(ceiling_date(dates, "month") - days(1)))
-
-# pull historical actual total waits
-cur <- df_wait |>
-  filter(org_name == iteration$org_name[1],
-         service == iteration$service[1],
-         metric_id == 'RES001c') 
-
-# pull trajectory from trajectory dataframe 
-traj_pred <- trajectory |> 
-  filter(org_name == iteration$org_name[1],
-         service == iteration$service[1]) 
-
-com <- bind_rows(cur, mc_agg, traj_pred) |>
-  mutate(month = ceiling_date(month, "month") - days(1))
-
-com 
-}
-
-com <- create_peformance_dataframe(1)
 
 
-# plot just predictions
-com |> 
-  ggplot() +
-  geom_textpath(aes(x=month, y=metric_value), label = 'Actuals', hjust = 0.3, straight = TRUE) +
-  geom_textpath(aes(x=dates, y=mean_q),linetype = "dashed", label = 'Predicted', hjust = 0.3, straight = TRUE ) +
-  geom_ribbon(aes(x=dates, ymin=q_25, ymax=q_75), alpha = 0.5, fill= 'lightblue') +
-  theme_minimal() +
-  labs(title = paste0(iteration$org_name[1], '\n', iteration$service[1]),
-       subtitle = paste0('Projected waiting list size to ', format(target_date, '%d %B %y'), '\nBased on calibrated metrics of demand and capacity'),
-       x = NULL,
-       y = 'Number of patients waiting') +
-  scale_x_date(date_breaks = '2 month',
-               date_labels = '%b %y') 
-
-
-# funtion to plot predictions and trajectories
-plot_predictions_trajectory <- function(i, traj = F) {
-
-  com <- create_peformance_dataframe(i)
-  
-# plot predictions + target + trajectory 
-plot <- com |> 
-  ggplot() +
-  geom_textpath(aes(x=month, y=metric_value), label = 'Actuals', hjust = 0.3, straight = TRUE) +
-  geom_textpath(aes(x=dates, y=mean_q),linetype = "dashed", label = 'Predicted', hjust = 0.3, straight = TRUE ) +
-  geom_ribbon(aes(x=dates, ymin=q_25, ymax=q_75), alpha = 0.5, fill= 'lightblue') +
-  theme_minimal() +
-  labs(title = paste0(iteration$org_name[1], '\n', iteration$service[1]),
-       subtitle = paste0('Projected waiting list size to ', format(target_date, '%d %B %y'), '\nAlso showing trajectory required to achieve 52wk target'),
-       x = NULL,
-       y = 'Number of patients waiting') +
-  scale_x_date(date_breaks = '2 month',
-               date_labels = '%b %y') 
-
-if(traj == T) {
-  plot <- plot +
-    geom_textpath(aes(x=date, y=traj),linetype = "longdash", label = 'Trajectory to achieve target', hjust = 0.3, straight = TRUE, color = "red" ) +
-    geom_texthline(aes(yintercept = traj_pred$traj[traj_pred$date==max(traj_pred$date)], label='Target waiting list size', hjust = 0.1), color = "red") 
-}  
- plot
-}
-
-plot_predictions_trajectory(1, F)
-
-plot_predictions_trajectory(2, T)
-  
+# 
+# 
+# # plot just predictions
+# com |> 
+#   ggplot() +
+#   geom_textpath(aes(x=month, y=metric_value), label = 'Actuals', hjust = 0.3, straight = TRUE) +
+#   geom_textpath(aes(x=dates, y=mean_q),linetype = "dashed", label = 'Predicted', hjust = 0.3, straight = TRUE ) +
+#   geom_ribbon(aes(x=dates, ymin=q_25, ymax=q_75), alpha = 0.5, fill= 'lightblue') +
+#   theme_minimal() +
+#   labs(title = paste0(iteration$org_name[1], '\n', iteration$service[1]),
+#        subtitle = paste0('Projected waiting list size to ', format(target_date, '%d %B %y'), '\nBased on calibrated metrics of demand and capacity'),
+#        x = NULL,
+#        y = 'Number of patients waiting') +
+#   scale_x_date(date_breaks = '2 month',
+#                date_labels = '%b %y') 
+# 
+# 
+# # funtion to plot predictions and trajectories
+# plot_predictions_trajectory <- function(i, traj = F) {
+# 
+#   com <- create_peformance_dataframe(i)
+#   
+# # plot predictions + target + trajectory 
+# plot <- com |> 
+#   ggplot() +
+#   geom_textpath(aes(x=month, y=metric_value), label = 'Actuals', hjust = 0.3, straight = TRUE) +
+#   geom_textpath(aes(x=dates, y=mean_q),linetype = "dashed", label = 'Predicted', hjust = 0.3, straight = TRUE ) +
+#   geom_ribbon(aes(x=dates, ymin=q_25, ymax=q_75), alpha = 0.5, fill= 'lightblue') +
+#   theme_minimal() +
+#   labs(title = paste0(iteration$org_name[1], '\n', iteration$service[1]),
+#        subtitle = paste0('Projected waiting list size to ', format(target_date, '%d %B %y'), '\nAlso showing trajectory required to achieve 52wk target'),
+#        x = NULL,
+#        y = 'Number of patients waiting') +
+#   scale_x_date(date_breaks = '2 month',
+#                date_labels = '%b %y') 
+# 
+# if(traj == T) {
+#   plot <- plot +
+#     geom_textpath(aes(x=date, y=traj),linetype = "longdash", label = 'Trajectory to achieve target', hjust = 0.3, straight = TRUE, color = "red" ) +
+#     geom_texthline(aes(yintercept = traj_pred$traj[traj_pred$date==max(traj_pred$date)], label='Target waiting list size', hjust = 0.1), color = "red") 
+# }  
+#  plot
+# }
+# 
+# plot_predictions_trajectory(1, F)
+# 
+# plot_predictions_trajectory(2, T)
+#   
