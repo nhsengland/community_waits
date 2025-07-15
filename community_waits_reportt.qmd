@@ -75,46 +75,53 @@ waiting_time_target_18 <- 18
 # NOTE: It is not possible to calculate 100% achievement
 target_18 <- 0.92
 
+achievement_value_18 <- qexp(target_18)
+
 target_date <- as.Date("2026-03-31")
 
 #############
 # data load #
 #############
+# 
+# serv <- "udalsyndataprod.sql.azuresynapse.net"
+# db <- "UDAL_Warehouse"
+# 
+# con_udal <- DBI::dbConnect(
+#   drv = odbc::odbc(),
+#   driver = "ODBC Driver 17 for SQL Server",
+#   server = serv,
+#   database = "UDAL_Warehouse",
+#   authentication = "ActiveDirectoryInteractive"
+# )
+# 
+# dat <- DBI::dbGetQuery(conn = con_udal, statement = paste0("
+# 
+# SELECT  [Period]
+#       ,[Month]
+#       ,[OrgRef]
+#       ,[OrgName]
+#       ,c.[Region_Name]
+#       ,[STP_Code]
+#       ,[STP_Name]
+#       ,[Service]
+#       ,[ServiceType]
+#       ,[MetricID]
+#       ,[MetricDescription] as Question
+#       ,[TextResponses]
+#       ,[MetricValue],
+# 	  h.*
+#   FROM [Reporting_SEFT_Sitreps_Published].[CommunityHealthServicesSitRep]  as c
+# 
+#   left join (select distinct icb_code, integrated_care_board_name, region_name from [Reporting_UKHD_ODS].[Provider_Hierarchies_ICB] where effective_to is null ) as h
+# on c.stp_code = h.icb_code
+# 
+#   where month > DATEADD(mm,-40,GETDATE()) and
+#   h.region_name = '", region, "'"))
+# 
 
-serv <- "udalsyndataprod.sql.azuresynapse.net"
-db <- "UDAL_Warehouse"
 
-con_udal <- DBI::dbConnect(
-  drv = odbc::odbc(),
-  driver = "ODBC Driver 17 for SQL Server",
-  server = serv,
-  database = "UDAL_Warehouse",
-  authentication = "ActiveDirectoryInteractive"
-)
-
-dat <- DBI::dbGetQuery(conn = con_udal, statement = paste0("
-
-SELECT  [Period]
-      ,[Month]
-      ,[OrgRef]
-      ,[OrgName]
-      ,c.[Region_Name]
-      ,[STP_Code]
-      ,[STP_Name]
-      ,[Service]
-      ,[ServiceType]
-      ,[MetricID]
-      ,[MetricDescription] as Question
-      ,[TextResponses]
-      ,[MetricValue],
-	  h.*
-  FROM [Reporting_SEFT_Sitreps_Published].[CommunityHealthServicesSitRep]  as c
-
-  left join (select distinct icb_code, integrated_care_board_name, region_name from [Reporting_UKHD_ODS].[Provider_Hierarchies_ICB] where effective_to is null ) as h
-on c.stp_code = h.icb_code
-
-  where month > DATEADD(mm,-40,GETDATE()) and
-  h.region_name = '", region, "'"))
+#saveRDS(dat, "dat.rds")
+dat <- readRDS('dat.rds')
 
 # clean names
 df <- clean_names(dat) |>
@@ -154,7 +161,7 @@ df_average <- df |>
     mean_waits = metric_value
   )
 
-# calculate current proportion waiting over 52 weeks
+# calculate current proportion waiting over 18 & 52 weeks
 df_prop <- df |>
   filter(
     str_starts(metric_id, "RES001"),
@@ -252,15 +259,23 @@ over_18 <- df_prop_18 |>
   )
 
 
-# make a pretty table of our over 52 week waits
-over_52_tab <-  function (org) {
+# make a pretty table of our over X week waits
+over_x_tab <-  function (data, org, selection) {
 
-over_52_tab <- over_52 |>
+over_x_tab <- data |>
   filter(org_name == org) |>
   select(
     -month,
-    -waits_52
-  ) |>
+    -!!sym(selection),
+    -org_name
+  ) 
+
+if (selection == 'waits_18') {
+  over_x_tab <- over_x_tab |>
+    arrange(perc)
+}
+
+over_x_tab <- over_x_tab |>
   gt() |>
   opt_row_striping(row_striping = FALSE) |>
   opt_table_font(font = 'Gill Sans MT', size = px(11)) |>
@@ -281,26 +296,49 @@ over_52_tab <- over_52 |>
     column = perc_bar, scaled = TRUE,
     fill = "#005EB8", background = "lightblue"
   ) |>
-  tab_header(
-    title = paste0(org, ": Community 52 week waits as at ", format(latest_date, "%B %y")),
-    subtitle = md("Waitings lists by provider and service with patients waiting 52 weeks+")
-  ) |>
   tab_footnote(
     footnote = paste0(
       "Data taken from Community Health Services (CHS) SitRep downloaded as at ",
       format(Sys.Date(), "%Y-%m-%d")
     )
-  ) |>
+  ) 
+
+if (selection == 'waits_18') {
+  over_x_tab <- over_x_tab |>
+      tab_header(
+    title = paste0(org, ": Community 18 week waits as at ", format(latest_date, "%B %y")),
+    subtitle = md("Waitings lists by provider and service with <92% patients waiting under 18 weeks")
+  )|>
+  cols_label(
+    service = "Service",
+    metric_value = "Patients waiting over 18 wks",
+    total = "Total patients waiting",
+    perc = "Percentage under 18 wks",
+    perc_bar = "Target > 92%"
+  ) 
+    
+} else {
+  over_x_tab <- over_x_tab  |>
+  tab_header(
+    title = paste0(org, ": Community 52 week waits as at ", format(latest_date, "%B %y")),
+    subtitle = md("Waitings lists by provider and service with patients waiting 52 weeks+")
+  )|>
   cols_label(
     service = "Service",
     metric_value = "Patients waiting over 52 wks",
     total = "Total patients waiting",
     perc = "Percentage over 52 wks",
-    perc_bar = " "
-  ) 
+    perc_bar = "Target 0%"
+  ) }
 
-over_52_tab
+
+over_x_tab <- over_x_tab |>
+  as_raw_html()
+
+over_x_tab
 }
+
+#over_x_tab(over_18, 'CORNWALL PARTNERSHIP', 'waits_18')
 
 
 # create weekly referral distributions
@@ -317,36 +355,58 @@ df_refs <- df_wait |>
   )
 
 # calculate percentage of 52+ waits
-df_waits_52 <- df_wait |>
-  filter(
-    metric_id %in% c(
-      "RES001c",
-      "RES001cvii",
-      "RES001cviii"
-    ),
-    month >= latest_date
-  ) |>
-  select(
+df_waits_52 <- df_prop_52 |>
+  filter(waits_52 == 'More than 52') |>
+    select(
     org_name,
     service,
-    question,
-    metric_value
+    num_52 = metric_value,
+    perc_52 = perc
   ) |>
-  pivot_wider(
-    names_from = question,
-    values_from = metric_value
-  ) |>
-  mutate(
-    perc_52 = (`Waiting >52-104 weeks` + `Waiting >104 weeks`) / `Total waiting list`,
-    perc_52 = if_else(is.nan(perc_52), 0, round(perc_52, 2)),
-    num_52 = (`Waiting >52-104 weeks` + `Waiting >104 weeks`)
-  ) |>
-  select(
+  mutate(perc_52 = round(perc_52, 2))
+
+# calculate percentage of <18 waits
+df_waits_18 <- df_prop_18 |>
+  filter(waits_18 == 'Less than 18') |>
+    select(
     org_name,
     service,
-    perc_52,
-    num_52
-  )
+    num_18 = metric_value,
+    perc_18 = perc
+  ) |>
+  mutate(perc_18 = round(perc_18, 2))
+# 
+# # calculate percentage of 52+ waits
+# df_waits_52 <- df_wait |>
+#   filter(
+#     metric_id %in% c(
+#       "RES001c",
+#       "RES001cvii",
+#       "RES001cviii"
+#     ),
+#     month >= latest_date
+#   ) |>
+#   select(
+#     org_name,
+#     service,
+#     question,
+#     metric_value
+#   ) |>
+#   pivot_wider(
+#     names_from = question,
+#     values_from = metric_value
+#   ) |>
+#   mutate(
+#     perc_52 = (`Waiting >52-104 weeks` + `Waiting >104 weeks`) / `Total waiting list`,
+#     perc_52 = if_else(is.nan(perc_52), 0, round(perc_52, 2)),
+#     num_52 = (`Waiting >52-104 weeks` + `Waiting >104 weeks`)
+#   ) |>
+#   select(
+#     org_name,
+#     service,
+#     perc_52,
+#     num_52
+#   )
 
 # calculate removals
 # monthly referrals into separate column
@@ -433,6 +493,12 @@ df_summary <- df_wait |>
       service
     )
   ) |>
+    left_join(df_waits_18,
+    by = join_by(
+      org_name,
+      service
+    )
+  ) |>
   mutate(dq_tag = case_when(mean_removals < 0 ~ 1,
     is.na(sd_removals) ~ 1,
     mean_ref < 0 ~ 1,
@@ -454,23 +520,43 @@ df_model <- df_summary |>
   mutate(
     wl_load = calc_queue_load(mean_ref, mean_removals),
     target_mean_wait = calc_target_mean_wait(waiting_time_target, achievement_value),
+    target_mean_wait_18 = calc_target_mean_wait(waiting_time_target_18, achievement_value_18),
     target_queue_size = calc_target_queue_size(mean_ref, waiting_time_target),
+    target_queue_size_18 = calc_target_queue_size(mean_ref, waiting_time_target_18),
     queue_ratio = total_waits / target_queue_size,
+    queue_ratio_18 = total_waits / target_queue_size_18,
     additional_capacity = calc_relief_capacity(
       demand = mean_ref,
       queue_size = total_waits,
       target_queue_size = target_queue_size,
       time_to_target = wks_to_target
     ),
+    additional_capacity_18 = calc_relief_capacity(
+      demand = mean_ref,
+      queue_size = total_waits,
+      target_queue_size = target_queue_size_18,
+      time_to_target = wks_to_target
+    ),
     wl_pressure = calc_waiting_list_pressure(
       mean_waits,
       waiting_time_target
+    ),
+    wl_pressure_18 = calc_waiting_list_pressure(
+      mean_waits,
+      waiting_time_target_18
     ),
     coef_ref = sum((1/sd_ref) / (1/mean_ref)),
     coef_rem = sum((1/sd_removals) / (1/mean_removals)),
     tar_capacity = calc_target_capacity(
       demand = mean_ref,
       target_wait = waiting_time_target,
+      factor = 5,
+      cv_demand = coef_ref,
+      cv_capacity = coef_rem
+    ) * 1.1,
+    tar_capacity_18 = calc_target_capacity(
+      demand = mean_ref,
+      target_wait = waiting_time_target_18,
       factor = 5,
       cv_demand = coef_ref,
       cv_capacity = coef_rem
@@ -485,15 +571,17 @@ df_model <- df_summary |>
 # One table per provider
 #org <- "CORNWALL PARTNERSHIP"
 
-provider_model_table <- function(org)  {
+provider_model_table <- function(org, waits)  {
 
 
-df_model |>
+tab_data <- if(waits == '52') 
+  {df_model |>
   filter(org_name == org,
          mean_ref >0) |>
   mutate(
     dq_tag = if_else(mean_removals < 0, 1, dq_tag),
-    perc_52 = perc_52 * 100
+    perc_52 = perc_52,
+    mean_removals_dup = mean_removals
   ) |>
   arrange(-total_waits) |>
   select(
@@ -509,16 +597,43 @@ df_model |>
     queue_ratio, # total waits
     perc_52, # performance
     wl_pressure, # performance
+    mean_removals_dup, # capacity
     additional_capacity, # capacity
-    tar_capacity # capacity
+    tar_capacity  )} else {
+  df_model |>
+  filter(org_name == org,
+         mean_ref >0,
+         num_18 > 0 ) |>
+  mutate(
+    dq_tag = if_else(mean_removals < 0, 1, dq_tag),
+    perc_52 = perc_52,
+    mean_removals_dup = mean_removals
   ) |>
+  arrange(perc_18) |>
+  select(
+    service,
+    dq_tag, # dq
+    mean_ref, # d&c
+    mean_removals, # d&c
+    wl_load, # d&c
+    mean_waits, # waits time
+    target_mean_wait_18, # waits time
+    total_waits, # total waits
+    target_queue_size_18, # total waits
+    queue_ratio_18, # total waits
+    perc_18, # performance
+    wl_pressure_18, # performance
+    mean_removals_dup,# capacity
+    additional_capacity_18, # capacity
+    tar_capacity_18) # capacity 
+  }
+  
+  if(waits == '52') { 
+  model_table <- tab_data |> 
   gt() |>
   opt_row_striping(row_striping = FALSE) |>
   opt_table_font(font = 'Gill Sans MT', size = px(11)) |>
-  gt_duplicate_column(mean_removals,
-    append_text = "_dup",
-    after = perc_52
-  ) |>
+
   fmt_number(
     rows = everything(),
     decimals = 1,
@@ -551,7 +666,7 @@ df_model |>
     )
   ) |>
   tab_spanner(
-    label = "Capacity",
+    label = "Capacity Projections to Achieve Target",
     columns = c(
       mean_removals_dup,
       additional_capacity,
@@ -577,10 +692,10 @@ df_model |>
   ) |>
     tab_style(
     style = list(
-      cell_fill(color = "#CCA00F", alpha = 0.5)
+      cell_fill(color = "#41B6E6", alpha = 0.5)
     ),
     locations = cells_body(
-      rows = dq_tag == 1
+      columns  = c(13, 14, 15)
     )
   ) |>
   tab_style(
@@ -607,7 +722,7 @@ df_model |>
     labels = T
   ) |>
   tab_header(
-    title = paste0(org, ": Community Services waits as at ", format(latest_date, "%B %y"), " : Analysis to Achieve zero at 52 weeks target"),
+    title = paste0(org, ": Community Services waits as at ", format(latest_date, "%B %y"), " : Analysis to achieve zero at 52 weeks target"),
     subtitle = md("Waiting lists by service with waiting list metrics")
   ) |>
   tab_footnote(
@@ -634,6 +749,12 @@ df_model |>
       )
     )|>
     tab_style(
+      style = cell_text(weight = 'bolder', size = 'large'),
+      locations = cells_body(
+        columns = c(13,14,15)
+      )
+    ) |>
+    tab_style(
       style = cell_text(color = "red", weight = 'bolder', size = 'large'),
       locations = cells_body(
         columns = wl_load,
@@ -653,10 +774,161 @@ df_model |>
         columns = wl_pressure,
         rows = wl_pressure >=1.05
       )
+    )} else {
+       model_table <- tab_data |> 
+  gt() |>
+  opt_row_striping(row_striping = FALSE) |>
+  opt_table_font(font = 'Gill Sans MT', size = px(11)) |>
+
+  fmt_number(
+    rows = everything(),
+    decimals = 1,
+    use_seps = TRUE,
+    sep_mark = ","
+  ) |>
+  tab_spanner(
+    label = "Demand and Capacity",
+    columns = c(
+      mean_ref,
+      mean_removals,
+      wl_load
     )
+  ) |>
+  tab_spanner(
+    label = "Waiting Times",
+    columns = c(
+      mean_waits,
+      target_mean_wait_18,
+      total_waits,
+      target_queue_size_18,
+      queue_ratio_18
+    )
+  ) |>
+  tab_spanner(
+    label = "Performance",
+    columns = c(
+      perc_18,
+      wl_pressure_18
+    )
+  ) |>
+  tab_spanner(
+    label = "Capacity Projections to Achieve Target",
+    columns = c(
+      mean_removals_dup,
+      additional_capacity_18,
+      tar_capacity_18
+    )
+  ) |>
+  cols_label(
+    service = "Service",
+    dq_tag = "dq", # dq
+    mean_ref = "Mean referrals", # d&c
+    mean_removals = "Mean capacity", # d&c
+    wl_load = "(i) WL Load", # d&c
+    mean_waits = "Actual mean waits", # waits time
+    target_mean_wait_18 = "(ii) Target mean waits", # waits time
+    total_waits = "Current total waits", # total waits
+    target_queue_size_18 = "(iii) Target total waits", # total waits
+    queue_ratio_18 = "(iv) Queue ratio", # total waits
+    perc_18 = "%Waiting <18 Wks", # performance
+    mean_removals_dup = "Current capacity",
+    wl_pressure_18 = "(v) Pressure", # performance
+    additional_capacity_18 = "(vi) Relief capacity", # capacity
+    tar_capacity_18 = "(vii) Stable capacity" # capacity
+  ) |>
+    tab_style(
+    style = list(
+      cell_fill(color = "#41B6E6", alpha = 0.5)
+    ),
+    locations = cells_body(
+      columns  = c(13, 14, 15)
+    )
+  ) |>
+  tab_style(
+    style = list(
+      cell_fill(color = "#CCA00F", alpha = 0.5)
+    ),
+    locations = cells_body(
+      rows = dq_tag == 1
+    )
+  ) |>
+  cols_hide(columns = dq_tag) |>
+  tab_style(
+    style = list(
+      cell_text(weight = "bold")
+    ),
+    locations = cells_body(
+      columns = c(5, 7, 9, 10, 12, 13, 14)
+    )
+  ) |>
+  gt_plt_bar_pct(
+    column = perc_18,
+    fill = "#DA291C",
+    scaled = TRUE,
+    labels = T
+  ) |>
+  tab_header(
+    title = paste0(org, ": Community Services waits as at ", format(latest_date, "%B %y"), " : Analysis to achieve 92% of patients waiting less than 18 weeks"),
+    subtitle = md("Waiting lists by service with waiting list metrics")
+  ) |>
+  tab_footnote(
+    footnote = md(paste0(
+      "**NOTE:** *Rows in orange indicate a data quality issue or inconsistent data*<br>Data taken from Community Health Services (CHS) SitRep downloaded as at ",
+      format(Sys.Date(), "%Y-%m-%d")
+    ))
+  ) |>
+  tab_style(
+    style = cell_borders(
+      sides = c("right"),
+      color = "lightgrey",
+      weight = px(1)
+    ),
+    locations = cells_body(
+      columns = c(1, 5, 10, 12)
+    )
+  ) |>
+    tab_style(
+      style = cell_text(color = "red"),
+      locations = cells_body(
+        columns = mean_removals,
+        rows = mean_removals <0
+      )
+    )|>
+    tab_style(
+      style = cell_text(weight = 'bolder', size = 'large'),
+      locations = cells_body(
+        columns = c(13,14,15)
+      )
+    ) |>
+    tab_style(
+      style = cell_text(color = "red", weight = 'bolder', size = 'large'),
+      locations = cells_body(
+        columns = wl_load,
+        rows = wl_load >=1.05
+      )
+    ) |>
+    tab_style(
+      style = cell_text(color = "red", weight = 'bolder', size = 'large'),
+      locations = cells_body(
+        columns = queue_ratio_18,
+        rows = queue_ratio_18 >2
+      )
+    )|>
+    tab_style(
+      style = cell_text(color = "red", weight = 'bolder', size = 'large'),
+      locations = cells_body(
+        columns = wl_pressure_18,
+        rows = wl_pressure_18 >=1.05
+      )
+    ) 
+    }
+  
+model_table
+  
+  
 }
 
-
+# provider_model_table ('LIVEWELL SOUTHWEST', 18)
 
 # 12 month forecast dates
 dts <- data.frame(date = seq.Date(from = latest_date %m+% months(1),
@@ -671,8 +943,12 @@ trajectory <- trajectory |>
   mutate(traj = case_when(date == min(date) ~ total_waits,
     date == max(date) ~ target_queue_size,
     .default = NA
+  ), traj_18 = case_when(date == min(date) ~ total_waits,
+    date == max(date) ~ target_queue_size_18,
+    .default = NA
   )) |>
-  mutate(traj = na.interp(traj))
+  mutate(traj = na.interp(traj),
+         traj_18 = na.interp(traj_18))
 
 dq_issues <- df_model |>
   filter(
@@ -722,6 +998,18 @@ wl_model <- df_model |>
     chk = if_else(total_waits < target_queue_size, 1, 0)
   )
 
+wl_model_18 <- df_model |>
+  filter(
+    num_18 >= threshold,
+    dq_tag == 0
+  ) |>
+  arrange(-num_52) |>
+  mutate(
+    row_no = row_number(),
+    chk = if_else(total_waits < target_queue_size, 1, 0)
+  )
+
+
 # function to model simulation
 sim_func <- function(run_id, i) {
   iteration <- wl_model |>
@@ -757,14 +1045,11 @@ create_peformance_dataframe <- function(i) {
   iteration <- wl_model |>
     filter(row_no == i)
 
-
   # create a sequence of 50 iterations for monte carlo analysis
   run_sequence <- 1:50
 
   # run sim function n times to get monte carlo results
   stoc_preds <- lapply(run_sequence, sim_func, i)
-
-
 
   # pull the predictions
   mc_bind <- do.call("rbind", stoc_preds)
@@ -883,29 +1168,58 @@ Where there are at least 50 patients waiting over 52 weeks, further modelling ha
 
 ## Tables showing services with patients waiting over 52 weeks 
 
-::: panel-tabset
 ```{r}
-#| output: asis
+#| results: asis
+#| echo: false
+#| warning: false
 
-list_order <- unique(df_waits_52$org_name)
 
- res <- purrr::map_chr(list_order, \(hw) {
-                           knitr::knit_child(text = c(
-                             "### `r hw`",
-                             "", 
-                             "```{r}",
-                             "#| echo: false",
-                             "#| warning: false",
-                             "over_52_tab(hw)",
-                             "```",
-                             "",
-                             ""
-                           ), envir = environment(), quiet = TRUE)
-                         })
+cat('::: {.panel-tabset}  \n\n')
+
+waits <- c('waits_52', 'waits_18')
+
+for (i in waits) {
+
+     lis <- if (i=='waits_18') {
+        lis = over_18
+      } else
+      {lis = over_52}
+  
+  list_of_orgs <- unique(lis$org_name)
+  
+  label <- if (i=='waits_18') {
+        '18 week waits'} else
+      {'Over 52 week waits'}
+  
+  cat('### ',label,'   \n\n')
+
+  cat('::: {.panel-tabset}  \n\n')
+
+   for (j in list_of_orgs) {
+     
+       cat('#### ', j,'   \n')
+     
+       data <- if (i=='waits_18') {
+         data = over_18
+       } else
+       {data = over_52}
+       cat(knitr::knit_print(over_x_tab(data, j, i)))
+       cat('\n')
+       cat('\n')
+   }
  
- cat(res, sep = '\n')
+ cat('::: \n\n')
+
+}
+cat('::: \n\n')
+
+
 ```
-:::
+
+
+
+
+
 
 
 Certain assumptions were made with the dataset in derive variables that were not existent in the data.
@@ -936,7 +1250,7 @@ Further removals from the the analytical pipeline when the capacity calculation 
 
 ```{r}
 
-dq_tab
+#dq_tab
 
 ```
 
@@ -955,33 +1269,33 @@ For waiting lists that have at least 50 patients waiting over 52 weeks and where
 #| results: asis
 #| echo: false
 #| warning: false
-
-
-cat('::: {.panel-tabset}  \n\n')
-
-list_of_orgs <- unique(wl_model$org_name)
-
-for (i in list_of_orgs) {
-
-  list_of_services<-wl_model$service[wl_model$org_name == i]
-
-  cat('## ',i,'   \n\n')
-
-  cat('::: {.panel-tabset}  \n\n')
-
-  for (j in list_of_services) {
-      row <- wl_model$row_no[wl_model$org_name == i & wl_model$service == j]
-      cat('### ', j,'   \n')
-      p <- plot_predictions_trajectory(row, F)
-      print(p)
-      cat('\n')
-      cat('\n')
-  }
-
-cat('::: \n\n')
-
-}
-cat('::: \n\n')
+# 
+# 
+# cat('::: {.panel-tabset}  \n\n')
+# 
+# list_of_orgs <- unique(wl_model$org_name)
+# 
+# for (i in list_of_orgs) {
+# 
+#   list_of_services<-wl_model$service[wl_model$org_name == i]
+# 
+#   cat('## ',i,'   \n\n')
+# 
+#   cat('::: {.panel-tabset}  \n\n')
+# 
+#   for (j in list_of_services) {
+#       row <- wl_model$row_no[wl_model$org_name == i & wl_model$service == j]
+#       cat('### ', j,'   \n')
+#       p <- plot_predictions_trajectory(row, F)
+#       print(p)
+#       cat('\n')
+#       cat('\n')
+#   }
+# 
+# cat('::: \n\n')
+# 
+# }
+# cat('::: \n\n')
 
 
 ```
@@ -1040,34 +1354,28 @@ Target capacity formula, based on the Pollaczek-Khinchine^(8)^ formula. The targ
 
 The following tables show by provider, current waiting list position as well as calculated waiting list metrics.
 
+There are tabs for the 52 week wait modelling as well as modelling to achieve 92% at 18 weeks hythophetical target.
 
-::: panel-tabset
 ```{r}
 #| output: asis
-list_order <- unique(df_model$org_name)
-
- res <- purrr::map_chr(list_order, \(hw) {
-                           knitr::knit_child(text = c(
-                             "### `r hw`",
-                             "", 
-                             "```{r}",
-                             "#| echo: false",
-                             "#| warning: false",
-                             "provider_model_table(hw)",
-                             "```",
-                             "",
-                             ""
-                           ), envir = environment(), quiet = TRUE)
-                         })
- 
- cat(res, sep = '\n')
+# list_order <- unique(df_model$org_name)
+# 
+#  res <- purrr::map_chr(list_order, \(hw) {
+#                            knitr::knit_child(text = c(
+#                              "### `r hw`",
+#                              "", 
+#                              "```{r}",
+#                              "#| echo: false",
+#                              "#| warning: false",
+#                              "provider_model_table(hw)",
+#                              "```",
+#                              "",
+#                              ""
+#                            ), envir = environment(), quiet = TRUE)
+#                          })
+#  
+#  cat(res, sep = '\n')
 ```
-:::
-
-
-
-
-
 
 
 
@@ -1080,33 +1388,33 @@ These graphs show the modeled 52 week waits, with predictions and required traje
 #| echo: false
 #| warning: false
 
-
-cat('::: {.panel-tabset}  \n\n')
-
-list_of_orgs <- unique(wl_model$org_name)
-
-for (i in list_of_orgs) {
-
-  list_of_services<-wl_model$service[wl_model$org_name == i]
-
-  cat('## ',i,'   \n\n')
-
-  cat('::: {.panel-tabset}  \n\n')
-
-  for (j in list_of_services) {
-      row <- wl_model$row_no[wl_model$org_name == i & wl_model$service == j]
-      cat('### ', j,'   \n')
-      p <- plot_predictions_trajectory(row, T)
-      print(p)
-      cat('\n')
-      cat('\n')
-  }
-
-cat('::: \n\n')
-
-}
-cat('::: \n\n')
-
+# 
+# cat('::: {.panel-tabset}  \n\n')
+# 
+# list_of_orgs <- unique(wl_model$org_name)
+# 
+# for (i in list_of_orgs) {
+# 
+#   list_of_services<-wl_model$service[wl_model$org_name == i]
+# 
+#   cat('## ',i,'   \n\n')
+# 
+#   cat('::: {.panel-tabset}  \n\n')
+# 
+#   for (j in list_of_services) {
+#       row <- wl_model$row_no[wl_model$org_name == i & wl_model$service == j]
+#       cat('### ', j,'   \n')
+#       p <- plot_predictions_trajectory(row, T)
+#       print(p)
+#       cat('\n')
+#       cat('\n')
+#   }
+# 
+# cat('::: \n\n')
+# 
+# }
+# cat('::: \n\n')
+# 
 
 ```
 
