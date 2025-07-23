@@ -1,0 +1,91 @@
+---
+title: "A study of Community Waiting Lists, using queing theory to identify service gaps and prediciting additional capacity requirements to achieve zero patients at 52 week planning metrics and in addition explore capacity gap to achieve less than 92% of patients waiting more than 18 weeks. "
+date: "`r Sys.Date()`"
+author: S Wellesley-Miller
+date-format: "D MMMM YYYY"
+format:
+  html:
+    # Table of Contents options
+    toc: true
+    toc-depth: 3
+    toc-location: left
+    toc-title: Contents
+    number-sections: false
+    number-depth: 3
+    # Render options
+    anchor-sections: false
+    html-table-processing: none
+    html-math-method: katex
+    # Code options
+    code-tools:
+      source: false
+      toggle: false
+      caption: none
+    # code-fold: false
+    # code-summary: "Show code"
+    embed-resources: true
+    standalone: true
+    # URL options
+    link-external-icon: true
+    link-external-newwindow: true
+    # References
+    citations-hover: true
+    footnotes-hover: true
+    callout-appearance: simple
+    callout-collapse: true
+    cap-location: bottom
+    title-block-banner: '#005EB8'
+    backgroundcolor: '#ffffff'
+    mainfont: 'Gill Sans MT'
+    page-layout: full
+execute:
+  echo: false
+  warning: false
+
+---
+
+## Quarto
+
+Quarto enables you to weave together content and executable code into a finished presentation. To learn more about Quarto presentations see <https://quarto.org/docs/presentations/>.
+
+## Bullets
+
+When you click the **Render** button a document will be generated that includes:
+
+-   Content authored with markdown
+-   Output from executable code
+
+## Code
+
+When you click the **Render** button a presentation will be generated that includes both content and the output of embedded code. You can embed code like this:
+
+```{r}
+source('libraries.R')
+source('report_functions.R')
+
+
+# data load
+
+over_52 <- readRDS('over_52.rds')
+over_18 <- readRDS('over_18.rds')
+df_model <- readRDS('df_model.rds')
+combined_data <- readRDS('combined_data.rds')
+dq_tab <- readRDS('dq_tab.RDS')
+
+# make lists for outputs
+
+list_52 <- combined_data |>
+  filter(include_52 == 1) |>
+  select(org_name,
+         service) |>
+  unique()
+
+list_18 <- combined_data |>
+  filter(include_18 == 1) |>
+  select(org_name,
+         service) |>
+  unique()
+
+
+
+```
