@@ -1,0 +1,476 @@
+---
+title: "A study of Community Waiting Lists, using queing theory to identify service gaps and prediciting additional capacity requirements to achieve zero patients at 52 week planning metrics and in addition explore capacity gap to achieve less than 92% of patients waiting more than 18 weeks. "
+date: "`r Sys.Date()`"
+author: S Wellesley-Miller
+date-format: "D MMMM YYYY"
+format:
+  html:
+    # Table of Contents options
+    toc: true
+    toc-depth: 3
+    toc-location: left
+    toc-title: Contents
+    number-sections: false
+    number-depth: 4
+    # Render options
+    anchor-sections: false
+    html-table-processing: none
+    html-math-method: katex
+    # Code options
+    code-tools:
+      source: false
+      toggle: false
+      caption: none
+    # code-fold: false
+    # code-summary: "Show code"
+    embed-resources: true
+    standalone: true
+    # URL options
+    link-external-icon: true
+    link-external-newwindow: true
+    # References
+    citations-hover: true
+    footnotes-hover: true
+    callout-appearance: simple
+    callout-collapse: true
+    cap-location: bottom
+    title-block-banner: '#005EB8'
+    backgroundcolor: '#ffffff'
+    mainfont: 'Gill Sans MT'
+    page-layout: full
+execute:
+  echo: false
+  warning: false
+
+---
+
+```{r}
+source('libraries.R')
+source('parameters.R')
+source('report_functions.R')
+
+# data load
+
+over_52 <- readRDS('over_52.rds')
+over_18 <- readRDS('over_18.rds')
+df_model <- readRDS('df_model.rds')
+combined_data <- readRDS('combined_data.rds')
+dq_tab <- readRDS('dq_tab.rds')
+latest_date <- readRDS('late_date.rds')
+wl_model <- readRDS("wl_model.rds")
+
+# make lists for outputs
+
+list_52 <- combined_data |>
+  filter(include_52 == 1) |>
+  select(org_name,
+         service) |>
+  unique()
+
+list_18 <- combined_data |>
+  filter(include_18 == 1) |>
+  select(org_name,
+         service) |>
+  unique()
+
+```
+# Abstract
+
+This study investigates strategies for eliminating community waiting lists exceeding 52 weeks within Community Health Services (CHS) and also exploring the potential for achieving 92% target at 18 weeks as an aspiration to bring community waits in line with more established elective care waiting lists. Utilising data from CHS SitReps, it analyses key metrics of load and pressure at both provider and service levels. Queuing theory is applied to current waiting times to forecast future performance and determine the additional capacity needed to achieve national targets and future aspirations. Furthermore, the analysis quantifies the ongoing capacity required to maintain a steady state on the waiting list, preventing future backlogs. This research provides actionable insights for optimising resource allocation and improving patient access to community health services.
+
+# Background
+
+The Community Health Services (CHS) Situation Report (SitRep)^(1)^ serves as a standardised data collection instrument, aggregating monthly metrics pertaining to waiting lists and waiting times within both Children and Young People's (CYP) and Adult community health service sectors. Healthcare providers submit consolidated data at the service line level, irrespective of the multiplicity of Integrated Care Boards (ICBs) or geographical regions under which their services operate. While the SitRep encompasses a broad spectrum of NHS-commissioned community health services, it is acknowledged that its coverage may not be exhaustive across all localised healthcare systems.
+
+A key operational objective is to eliminate instances of patients waiting more than 52 weeks for community health services. This analysis focuses on identifying breaches of this planning target. Furthermore, it employs modeling techniques to ascertain an ideal waiting list size conducive to achieving this target, quantifies the additional capacity required for its attainment, and delineates the ongoing requirements necessary to establish a steady-state operational equilibrium.  A local aspiration is also to align targets with elective care targets and this methodology has also be utilised to investigate that objective.  
+
+A number of waiting list metrics are computed to facilitate a comprehensive understanding of prevailing waiting list pressures and to identify strategic intervention opportunities.
+
+# Method
+
+Data was taken from Community Health Services SitRep and analysed using R statistical software^(2)^ and NHS-R waiting list library^(3)^.
+
+Data was analysed at provider and service level. The rationale being that capacity across services is not interchangeable. IE spare capacity in a child and young peoples speech service would not be able to be used with an adult physiotherapy service.  
+
+Where there are at least 50 patients waiting over 52 (or 18) weeks, further modelling has been carried out to calculate addition capacity requirements to achieve target by March 2026 (or March 2027) and also to calculate optimal size of waiting list and capacity required once target has been met.  This is aimed at supporting planning and resource allocation for services.  Modelling has been conducted using "Little's Law" queuing theory ^(4)^^(5)^ and applied to NHS waits as suggested by Fong et all^(6)^. 
+
+## Tables by provider showing services with patients waiting over targets
+
+These show by provider, services not achieving the zero at 52 week target or 92% at 18 week aspiration.  
+
+```{r}
+#| results: asis
+#| echo: false
+#| warning: false
+
+
+cat('::: {.panel-tabset}  \n\n')
+
+waits <- c('waits_52', 'waits_18')
+
+for (i in waits) {
+
+     lis <- if (i=='waits_18') {
+        lis = over_18
+      } else
+      {lis = over_52}
+
+  list_of_orgs <- unique(lis$org_name)
+
+  label <- if (i=='waits_18') {
+        '18 week waits'} else
+      {'Over 52 week waits'}
+
+  cat('### ',label,'   \n\n')
+
+  cat('::: {.panel-tabset}  \n\n')
+
+   for (j in list_of_orgs) {
+
+       cat('#### ', j,'   \n')
+
+       data <- if (i=='waits_18') {
+         data = over_18
+       } else
+       {data = over_52}
+       cat(knitr::knit_print(over_x_tab(data, j, i)))
+       cat('\n')
+       cat('\n')
+   }
+
+ cat('::: \n\n')
+
+}
+cat('::: \n\n')
+
+
+```
+
+Certain assumptions were made with the data set to derive variables that were not existent in the data.
+
+## Referral calculation 
+
+The snapshot position of patients waiting between 0-1 weeks was taken as a proxy for the number of referrals received.  The mean was taken over the last 6 months to provide an average and standard deviations were calculated around this mean to model a distribution of variability to allow for a scholastic model. For pathways where there were patients waiting over a year for services, it was deemed unlikely that patients were being seen in their first week.  This average was multiplied by 4.4 to give an estimate of monthly referrals.
+
+## Capacity calculation
+
+Capacity is calculated as the number of patients being removed from the waiting list.  
+
+This is calculated as follows:
+
+**(Previous month's total waits + Current month referrals) - Current month's total waits**
+
+The capacity calculation was analysed for the previous 6 months to give a distribution around a mean.
+
+This capacity calculation simply counts the number of patients being removed and does not account for the activity or specialist capacity required to achieve a removal.  This removal may be due to transferring to another service pathway or other factors such as death or going private.  Therefore this calculation of capacity gives an indication of the current rate of removals and a potential required rate of removals to achieve a goal.  The exact detail of workforce and other resources required is beyond the scope of this analysis.  It is hoped that local operational knowledge of pathways would help understand this metric in context.
+
+## Data quality
+
+This data is received at an aggregate level and it it is not possible to verify the data at a patient level to assure consistency.  Data quality checks were in place to identify where there was incomplete data across the calibration period.
+
+Further removals from the the analytical pipeline when the capacity calculation returned a negative result.  This would indicate additional patients appearing on the waiting list, other than means of a referral.  This could not be accounted for and the assumption has been made that the data quality is poor and these features have are not possible to model with any degree of confidence.
+
+### Table showing which providers and service lines had data quality issues and removed from the modelling analysis
+
+```{r}
+
+dq_tab
+
+```
+
+# Results
+
+### Waiting list predictions to March 2027
+
+For waiting lists that have at least 50 patients waiting over 18 weeks and where there is assurance of data quality we can run stochastic predictions of future waiting list positions.  These are run multiple times (Monte Carlo method^(7)^) to achieve an average and 75% confidence intervals around the prediction.  These are predictions assuming referral and capacity stays the same as the previous 6 months which was used to calibrate the model.   
+
+**NOTE** These predictions are based purely on historic demand and capacity and do not take into account seasonal variation or other features. 
+
+### Waiting list predictions by provider and service.
+
+```{r}
+#| results: asis
+#| echo: false
+#| warning: false
+#| fig-width: 12
+
+cat('::: {.panel-tabset}  \n\n')
+
+list_of_orgs <- unique(combined_data$org_name)
+
+for (i in list_of_orgs) {
+
+  list_of_services<-unique(combined_data$service[combined_data$org_name == i])
+
+  cat('## ',i,'   \n\n')
+
+  cat('::: {.panel-tabset}  \n\n')
+
+  for (j in list_of_services) {
+      cat('### ', j,'   \n')
+      p <- plot_predictions_trajectory(i, j, F, '18')
+      print(p)
+      cat('\n')
+      cat('\n')
+  }
+
+cat('::: \n\n')
+
+}
+cat('::: \n\n')
+
+
+```
+
+Utilising the principles of Little's laws we can assert certain facts about the waiting list based on queuing theory principles.  This can give us powerful metrics to quantify the load and pressure on a waiting list.
+
+### (i) Waiting list 'load'
+
+The first principle is that capacity must be larger than demand, otherwise the waiting list size will grow indefinitely.
+
+We can calculate the load by comparing the demand to the capacity. This is not a straight ratio, but takes into account statistical variation.  
+
+If the load is greater than 1, then the queue is unstable, and the waiting list will grow indefinitely. If the load is less than 1, then the queue will be stable and the load is the proportion of the time that that waiting list is non-empty.
+
+If the load on a queue is less than 1 then the chance of missing the target halves each time we increase the target by some fixed number of days.
+
+### (ii) Target waiting time
+
+If we want to have a chance between 1.8%-0.2% of not achieving a waiting time target, then the average patient should have a waiting time between a quarter and a sixth of the target.  
+
+This has been calculated against the target of 0 patients waiting 52 weeks or longer.
+
+### (iii) Recommended queue size to achieve target
+
+Little’s Law. Assuming capacity exceeds demand, the average queue size is demand multiplied by average waiting time.  If we want the average waiting time to be a quarter of the target, then Little’s Law leads states target queue size is demand multiplied by target wait, divided by 4.
+
+### (iv) Queue ratio
+
+If the waiting list size is over twice the target queue size, then we consider that special measures are needed to increase capacity, and reduce waiting list size.
+
+This calculation also shows us where we have far smaller waiting lists than necessary to achieve target.  
+
+### (v) Waiting list pressure
+
+For a waiting list with target waiting time, the pressure on the waiting list is twice the mean waiting time divided by the target waiting time. The pressure of any given waiting list should be less than 1. If the pressure is greater than 1 then the waiting list is most likely going to miss its target.
+
+Measuring waiting list pressure can give a comparative measure with which to compare waiting lists, and help make resource allocation decisions.
+
+Table showing waiting list metrics across providers and then by service.
+
+###  (vi) Relief capacity
+
+If the actual queue size is more than double the target queue size, then decide on a target date by which the queue will be brought down, and apply the necessary relief capacity.
+
+In this analysis we have assumed a target to achieve performance of 0 at 52 weeks by `r `  xxdate
+
+As discussed above if the queue size is more than double its target then capacity should be increased temporarily. However, once the queue size is within an acceptable range, we can maintain the waiting time target with what is potentially a much smaller capacity allocation to the waiting list.
+
+### (vii) Steady capacity
+
+We know the mean waiting time and queue size of a waiting list operating at its target equilibrium. Now we calculate a capacity allocation that will maintain this equilibrium in the long run.  Assuming that the referral rate remains consistent.
+
+Target capacity formula, based on the Pollaczek-Khinchine^(8)^ formula. The target capacity depends on demand, plus an additional capacity which is based on service variability, and the waiting time target.
+
+### Tables showing waiting list metrics
+
+The following tables show by provider, current waiting list position as well as calculated waiting list metrics.
+
+There are tabs for the 52 week wait modelling as well as modelling to achieve 92% at 18 weeks hypothetical target.
+
+```{r}
+#| results: asis
+#| echo: false
+#| warning: false
+ 
+over_18_orgs <- unique(over_18$org_name)
+over_52_orgs <- unique(over_52$org_name)
+
+cat('::: {.panel-tabset}  \n\n')
+
+waits <- c('waits_52', 'waits_18')
+
+for (i in waits) {
+
+  label <- if (i=='waits_18') {
+        '18 week waits'} else
+      {'Over 52 week waits'}
+
+  cat('### ',label,'   \n\n')
+
+  cat('::: {.panel-tabset}  \n\n')
+
+  list_of_orgs <- if(i=='waits_18') {over_18_orgs} else { over_52_orgs}
+
+   for (j in list_of_orgs) {
+
+       cat('#### ', j,'   \n')
+
+       w <- if_else(i=='waits_18', 18, 52 )
+
+       cat(knitr::knit_print(provider_model_table(j, w)))
+
+       cat('\n')
+       cat('\n')
+       commentary(j, w)
+       cat('\n')
+       cat('\n')
+   }
+
+ cat('::: \n\n')
+
+}
+cat('::: \n\n')
+
+```
+
+# 52 / 18 Week waits - predictions and trajectory of overall waits to achieve target
+
+These graphs show the modeled 52 / 18 week waits, with predictions and required trajectories to achieve 0 at 52 weeks and 92% at 18 weeks by target date.
+
+```{r}
+#| results: asis
+#| echo: false
+#| warning: false
+#| fig-width: 14
+
+over_18_orgs <- unique(over_18$org_name)
+over_52_orgs <- unique(over_52$org_name)
+
+# Start the outermost panel-tabset
+#cat("---\n") # Add a horizontal rule for better separation, optional
+cat(":::{.panel-tabset}\n\n")
+
+waits <- c("waits_52", "waits_18")
+
+for (i in waits) {
+  label <- if (i == "waits_18") {
+    "18 week waits"
+  } else {
+    "Over 52 week waits"
+  }
+
+  list_of_orgs <- if (i == "waits_18") {
+    over_18_orgs
+  } else {
+    over_52_orgs
+  }
+
+  # Level 1 Heading for the tab
+  cat("## ", label, "\n\n")
+
+  # Start the second level panel-tabset for organizations
+  cat(":::{.panel-tabset}\n\n")
+
+  for (j in list_of_orgs) {
+    # Level 3 Heading for each organization tab
+    cat("### ", j, "\n") # Newline directly after heading for consistency
+
+    # Start the third level panel-tabset for services within each organization
+    cat(':::{.panel-tabset}\n\n')
+
+    list_of_services <- if (i == "waits_18") {
+    unique(over_18$service[over_18$org_name == j])
+  } else {
+     unique(over_52$service[over_52$org_name == j])
+  }
+
+    # You had 'cat(i, j)' here. This will print directly into the tab content.
+    # Consider if you want this text, or if it's for debugging.
+    # If it's for debugging, you might remove it in the final version.
+    cat("\n\n")
+
+
+    for (k in list_of_services) {
+      w <- if_else(i == "waits_52", 52, 18)
+
+      # Level 4 Heading for each service tab
+      cat("#### ", k, "\n\n")
+
+      # Your placeholder content for each service
+      # Ensure this content is properly formatted Markdown if you want specific rendering
+      p <- plot_predictions_trajectory(j, k, T, w)
+      print(p)
+      cat("\n\n")
+
+    } # End of service loop
+
+    # Close the third level panel-tabset (services)
+    cat(":::\n\n")
+   } # End of organization loop
+
+  # Close the second level panel-tabset (organizations)
+  cat(":::\n\n")
+} # End of waits loop
+
+# Close the outermost panel-tabset
+cat(":::\n\n") # No extra newline at the very end
+#cat("---\n") # Add a horizontal rule, optional
+
+
+```
+
+
+# Discussion
+
+This analysis, while providing strategic-level insights, is predicated on a set of high-level assumptions and should not be interpreted as a granular simulation. The primary constraint lies in the current unavailability of robust, high-confidence data within NHS England for a more comprehensive investigation.
+
+A notable data aggregation issue stems from independent providers operating across multiple Integrated Care Boards (ICBs). These providers often submit consolidated data to a lead ICB, potentially leading to an under representation of specific services at the local ICB level.
+
+The current capacity gap assessment is based on existing referral volumes. Future analytical iterations could incorporate additional scenarios to model the impact of fluctuating referral demand on capacity requirements.
+
+The aspirational goal of 92% at 18 weeks is not a national standard, but has been included here to provide a gap analysis and ambitional goal.
+ 
+## Data quality and future enhancements
+ 
+The scope of this report was limited to the national target of zero patients waiting over 52 weeks by March 2026. In addition an 18 week ambition by March 2027 was included.  The model has functions that would allow these goals to be adjusted.   
+
+A significant limitation is the reliance on aggregate-level situation report (sit rep) data, which is characterised by its poor quality. This precludes data verification and issue identification at a patient level. Prospective data sources, such as Faster Data Flows (FDF) data, offer a potential solution. FDF data, being patient-level, would enable patient-level assurance and a more precise understanding of patient pathways. Furthermore, linking patient-level datasets with activity data could provide a deeper understanding of the capacity required to clear waiting lists. 
+
+Another potential data source would be the Community Services Dataset (CSDS), but this is not currently utilised to measure waiting lists.  The nationally published source of community waits is the sitrep and so that is what has been applied
+ 
+## Utility of the analysis despite data limitations
+ 
+Despite the inherent limitations in data robustness, this analysis retains considerable utility in highlighting the pressures on waiting lists. On the surface, we might assume that growing a waiting list is always a bad thing. When dealing with a health economy, we must consider the ‘opportunity cost’: what benefits we forgo by using our resources in one place rather than another. When applied to a large, complex health economy, this might mean we increase a waiting list, within an acceptable limit, in order to release resources/staff/funding to be used elsewhere. 
+
+So our task here is to work out how large the waiting list can grow whilst still meeting target, setting a time period to do it over, then reducing capacity accordingly. Again that the optimisation characteristics are based on the zero at 52 weeks, perhaps a more robust plan would be around achievement of the 18 week target, however this does not currently apply as a commissioned target to community waiting lists.  
+
+The model is open source and could easily be adapted based on more assured local data sources.  The code to create the model is open source and could be pointed at a different data source in order to get more localised assurance of the data.  
+
+# Confidentiality 
+
+All data used in this report is publicly available and thus there are no barriers to sharing this report.  
+
+The code to produce this report is freely available under MIT licence at https://github.com/nhsengland/community_waits 
+
+> Contact  
+> [**Simon Wellesley-Miller**](mailto:Simon.Wellesley-Miller@nhs.net)\
+> *Senior Analytical Manager*  
+>   
+> South West Intelligence and Insights  
+> NHS England  
+> Version 1.1 25 July 2025
+
+
+# Citations
+
+^(1)^ https://www.england.nhs.uk/statistics/statistical-work-areas/community-health-services-waiting-lists/
+
+^(2)^ R Core Team (2024). _R: A Language and Environment for Statistical Computing_. R Foundation for Statistical Computing, Vienna, Austria. <https://www.R-project.org/>.
+
+^(3)^ Walton N, Dray M, Smith T, Mainey C (2025). NHSRwaitinglist: Waiting List Metrics Using Queuing Theory. R package version 0.1.1, https://nhs-r-community.github.io/NHSRwaitinglist/.
+
+^(4)^ Little JDC. A Proof for the Queuing Formula: L = λW. Operations Research. 
+1961;9(3):383–7. 
+
+^(5)^ Little JDC, Graves SC. Little’s Law. In: Chhajed, D, Lowe, TJ (eds) Building Intuition. 
+Springer; 2008. (International Series in Operations Research & Management Science; 
+vol. 115).
+
+^(6)^ Understanding Waiting Lists Pressures: Kevin Fong, Yasser Mushtaq, Thomas House, Dan Gordon, Yingrae Chen, Darren Griffths, Shazaad Ahmad, Neil Walton medRxiv 2022.08.23.22279117; doi: https://doi.org/10.1101/2022.08.23.22279117
+
+^(7)^ Norris J. Markov Chains. Cambridge University Press; 1997. (Cambridge Series in 
+Statistical and Probabilistic Mathematics).
+
+^(8)^ Paul Embrechts, Claudia Klüppelberg, and Thomas Mikosch. Modelling Extremal Events. Springer Verlag, Berlin Heidelberg, 1997. doi:10.1007/978-3-642-33483-2.
+
