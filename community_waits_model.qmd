@@ -1163,14 +1163,17 @@ list_18 <- combined_data |>
 # function to plot predictions and trajectories
 plot_predictions_trajectory <- function(org, serv, traj = F, wait) {
   
-  wt <- if_else(wait == '18', )
+  traj_mod <- if_else(wait == '18', 'trag_18', 'trag')
+  target_mod <- if_else(wait == '18', 'tar_capacity_18', 'tar_capacity')
   
   com <- combined_data |>
-    filter()
+    filter(org_name == org,
+           service == serv)
 
   # filter data to an iteration
   iteration <- wl_model |>
-    filter(row_no == i)
+    filter(org_name == org,
+           service == serv)
 
   # plot predictions + target + trajectory
   plot <- com |>
