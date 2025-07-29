@@ -5,8 +5,6 @@
 # report parameters #
 #####################
 
-# name of region to run report for
-region <- "SOUTH WEST"
 
 # threshold of number of patients waiting over 52 weeks to run models for
 threshold <- 50
@@ -33,3 +31,11 @@ target_18 <- 0.92
 achievement_value_18 <- qexp(target_18)
 
 target_date_18 <- as.Date("2027-03-31")
+
+# calibration window
+# (How many months of past data to model on usually 6 or 12)
+
+calibration <- 12
+
+
+

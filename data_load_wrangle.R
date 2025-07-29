@@ -40,9 +40,9 @@
 #   where month > DATEADD(mm,-40,GETDATE()) and
 #   h.region_name = '", region, "'"))
 # 
-
-
-#saveRDS(dat, "dat.rds")
+# 
+# 
+# saveRDS(dat, "dat.rds")
 dat <- readRDS('dat.rds')
 
 
@@ -68,7 +68,7 @@ saveRDS(latest_date, 'late_date.rds')
 df_wait <- df |>
   filter(
     str_starts(metric_id, "RES001"),
-    month >= latest_date %m-% months(6)
+    month >= latest_date %m-% months(calibration)
   ) |>
   arrange(
     org_name,
@@ -160,34 +160,7 @@ df_prop_18 <- df_prop |>
   mutate(perc = if_else(is.nan(perc), 0, perc))
 
 
-# filter our dataframe to just those over 52 weeks
-over_52 <- df_prop_52 |>
-  filter(
-    waits_52 == "More than 52",
-    metric_value > 0
-  ) |>
-  arrange(
-    org_name,
-    -perc
-  ) |>
-  inner_join(wl_model|> select (org_name, service))
 
-# filter our dataframe to just those over 52 weeks
-over_18 <- df_prop_18 |>
-  filter(
-    waits_18 == "Less than 18",
-    perc < 92,
-    metric_value > 0
-  ) |>
-  arrange(
-    org_name,
-    -perc
-  )|>
-  inner_join(wl_model |> select (org_name, service))
-
-
-saveRDS(over_52, 'over_52.rds')
-saveRDS(over_18, 'over_18.rds')
 
 
 
@@ -225,38 +198,6 @@ df_waits_18 <- df_prop_18 |>
     perc_18 = perc
   ) |>
   mutate(perc_18 = round(perc_18, 2))
-# 
-# # calculate percentage of 52+ waits
-# df_waits_52 <- df_wait |>
-#   filter(
-#     metric_id %in% c(
-#       "RES001c",
-#       "RES001cvii",
-#       "RES001cviii"
-#     ),
-#     month >= latest_date
-#   ) |>
-#   select(
-#     org_name,
-#     service,
-#     question,
-#     metric_value
-#   ) |>
-#   pivot_wider(
-#     names_from = question,
-#     values_from = metric_value
-#   ) |>
-#   mutate(
-#     perc_52 = (`Waiting >52-104 weeks` + `Waiting >104 weeks`) / `Total waiting list`,
-#     perc_52 = if_else(is.nan(perc_52), 0, round(perc_52, 2)),
-#     num_52 = (`Waiting >52-104 weeks` + `Waiting >104 weeks`)
-#   ) |>
-#   select(
-#     org_name,
-#     service,
-#     perc_52,
-#     num_52
-#   )
 
 # calculate removals
 # monthly referrals into separate column
@@ -425,8 +366,6 @@ df_model <- df_summary |>
 
 saveRDS(df_model, 'df_model.rds')
 
-
-
 # 12 month forecast dates
 dts <- data.frame(date = seq.Date(from = latest_date %m+% months(1),
                                   to = target_date_18,
@@ -510,8 +449,6 @@ wl_model <- df_model |>
     chk = if_else(total_waits < target_queue_size, 1, 0)
   )
 
-
-
 wl_model_18 <- df_model |>
   filter(
     num_18 >= threshold,
@@ -530,30 +467,60 @@ wl_model <- wl_model |>
 
 saveRDS(wl_model, "wl_model.rds")
 
+# filter our dataframe to just those over 52 weeks
+over_52 <- df_prop_52 |>
+  filter(
+    waits_52 == "More than 52",
+    metric_value > 0
+  ) |>
+  arrange(
+    org_name,
+    -perc
+  ) |>
+  inner_join(wl_model|> select (org_name, service))
 
-# create empty dataframe to collect results
-combined_data <- data.frame()
+# filter our dataframe to just those over 52 weeks
+over_18 <- df_prop_18 |>
+  filter(
+    waits_18 == "Less than 18",
+    perc < 92,
+    metric_value > 0
+  ) |>
+  arrange(
+    org_name,
+    -perc
+  )|>
+  inner_join(wl_model |> select (org_name, service))
 
-# run model for all   
-cli_progress_bar("processing data", total = max(wl_model$row_no))
 
-for (i in (1:max(wl_model$row_no))) {
-  combined_data <- combined_data |>
-    bind_rows(create_peformance_dataframe(i))
-  cli_progress_update()
+saveRDS(over_52, 'over_52.rds')
+saveRDS(over_18, 'over_18.rds')
 
-}
 
-combined_data <-  combined_data |>
-  mutate(include_52 = if_else(num_52 > 0, 1, 0),
-         include_18 = if_else(perc_18 < 92, 1, 0)) |>
-  fill(include_52, .direction = 'up') |>
-  fill(include_18, .direction = 'up') |>
-  fill(org_name, .direction = 'down') |>
-  fill(service, .direction = 'down')
-
-saveRDS(combined_data, "combined_data.rds")
-#combined_data <- readRDS('combined_data.rds')
+# 
+# # create empty dataframe to collect results
+# combined_data <- data.frame()
+# 
+# # run model for all   
+# cli_progress_bar("processing data", total = max(wl_model$row_no))
+# 
+# for (i in (1:max(wl_model$row_no))) {
+#   combined_data <- combined_data |>
+#     bind_rows(create_peformance_dataframe(i))
+#   cli_progress_update()
+# 
+# }
+# 
+# combined_data <-  combined_data |>
+#   mutate(include_52 = if_else(num_52 > 0, 1, 0),
+#          include_18 = if_else(perc_18 < 92, 1, 0)) |>
+#   fill(include_52, .direction = 'up') |>
+#   fill(include_18, .direction = 'up') |>
+#   fill(org_name, .direction = 'down') |>
+#   fill(service, .direction = 'down')
+# 
+# saveRDS(combined_data, "combined_data.rds")
+combined_data <- readRDS('combined_data.rds')
 
 
 
