@@ -4,47 +4,54 @@
 #############
 # data load #
 #############
-# 
-# serv <- "udalsyndataprod.sql.azuresynapse.net"
-# db <- "UDAL_Warehouse"
-# 
-# con_udal <- DBI::dbConnect(
-#   drv = odbc::odbc(),
-#   driver = "ODBC Driver 17 for SQL Server",
-#   server = serv,
-#   database = "UDAL_Warehouse",
-#   authentication = "ActiveDirectoryInteractive"
-# )
-# 
-# dat <- DBI::dbGetQuery(conn = con_udal, statement = paste0("
-# 
-# SELECT  [Period]
-#       ,[Month]
-#       ,[OrgRef]
-#       ,[OrgName]
-#       ,c.[Region_Name]
-#       ,[STP_Code]
-#       ,[STP_Name]
-#       ,[Service]
-#       ,[ServiceType]
-#       ,[MetricID]
-#       ,[MetricDescription] as Question
-#       ,[TextResponses]
-#       ,[MetricValue],
-# 	  h.*
-#   FROM [Reporting_SEFT_Sitreps_Published].[CommunityHealthServicesSitRep]  as c
-# 
-#   left join (select distinct icb_code, integrated_care_board_name, region_name from [Reporting_UKHD_ODS].[Provider_Hierarchies_ICB] where effective_to is null ) as h
-# on c.stp_code = h.icb_code
-# 
-#   where month > DATEADD(mm,-40,GETDATE()) and
-#   h.region_name = '", region, "'"))
-# 
-# 
-# 
-# saveRDS(dat, "dat.rds")
-dat <- readRDS('dat.rds')
+#
+cli_alert('Running data query - please input your username and credentials')
+cli_alert_warning('NOTE: This may be in a seperate window')
 
+serv <- "udalsyndataprod.sql.azuresynapse.net"
+db <- "UDAL_Warehouse"
+
+con_udal <- DBI::dbConnect(
+  drv = odbc::odbc(),
+  driver = "ODBC Driver 17 for SQL Server",
+  server = serv,
+  database = "UDAL_Warehouse",
+  authentication = "ActiveDirectoryInteractive"
+)
+
+dat <- DBI::dbGetQuery(conn = con_udal, statement = paste0("
+
+SELECT  [Period]
+      ,[Month]
+      ,[OrgRef]
+      ,[OrgName]
+      ,c.[Region_Name]
+      ,[STP_Code]
+      ,[STP_Name]
+      ,[Service]
+      ,[ServiceType]
+      ,[MetricID]
+      ,[MetricDescription] as Question
+      ,[TextResponses]
+      ,[MetricValue],
+	  h.*
+  FROM [Reporting_SEFT_Sitreps_Published].[CommunityHealthServicesSitRep]  as c
+
+  left join (select distinct icb_code, 
+  integrated_care_board_name, 
+  region_name 
+  from [Reporting_UKHD_ODS].[Provider_Hierarchies_ICB] 
+  where effective_to is null ) as h
+on c.stp_code = h.icb_code
+
+  where month > DATEADD(mm,-40,GETDATE()) and
+  h.region_name = '", region, "'"))
+
+cli_alert_success('Data load complete')
+cli_alert_info('Pre processing data before model')
+
+saveRDS(dat, "dat.rds")
+dat <- readRDS("dat.rds")
 
 # clean names
 df <- clean_names(dat) |>
@@ -61,8 +68,7 @@ df <- df |>
 
 # calc latest date
 latest_date <- max(df$month, na.rm = T)
-saveRDS(latest_date, 'late_date.rds')
-
+saveRDS(latest_date, "late_date.rds")
 
 # filter to waiting times
 df_wait <- df |>
@@ -82,8 +88,8 @@ df_average <- df |>
     month == latest_date
   ) |>
   select(org_name,
-         service,
-         mean_waits = metric_value
+    service,
+    mean_waits = metric_value
   )
 
 # calculate current proportion waiting over 18 & 52 weeks
@@ -94,29 +100,31 @@ df_prop <- df |>
     month >= latest_date
   ) |>
   arrange(month) |>
-  mutate(waits_52 = if_else(question %in% c(
-    "Waiting 0-1 weeks",
-    "Waiting >1-2 weeks",
-    "Waiting >2-4 weeks",
-    "Waiting >4-12 weeks",
-    "Waiting >12-18 weeks",
-    "Waiting >18-52 weeks"
-  ),
-  "Less than 52",
-  "More than 52"
-  ),
-  waits_18 = if_else(question %in% c(
-    "Waiting 0-1 weeks",
-    "Waiting >1-2 weeks",
-    "Waiting >2-4 weeks",
-    "Waiting >4-12 weeks",
-    "Waiting >12-18 weeks"
-  ),
-  "Less than 18",
-  "More than 18"
-  )) 
+  mutate(
+    waits_52 = if_else(question %in% c(
+      "Waiting 0-1 weeks",
+      "Waiting >1-2 weeks",
+      "Waiting >2-4 weeks",
+      "Waiting >4-12 weeks",
+      "Waiting >12-18 weeks",
+      "Waiting >18-52 weeks"
+    ),
+    "Less than 52",
+    "More than 52"
+    ),
+    waits_18 = if_else(question %in% c(
+      "Waiting 0-1 weeks",
+      "Waiting >1-2 weeks",
+      "Waiting >2-4 weeks",
+      "Waiting >4-12 weeks",
+      "Waiting >12-18 weeks"
+    ),
+    "Less than 18",
+    "More than 18"
+    )
+  )
 
-
+# calculate the proportion of 52 week waits
 df_prop_52 <- df_prop |>
   summarise(
     metric_value = sum(metric_value),
@@ -138,6 +146,7 @@ df_prop_52 <- df_prop |>
   ) |>
   mutate(perc = if_else(is.nan(perc), 0, perc))
 
+# calculate the proportion of 18 week waits
 df_prop_18 <- df_prop |>
   summarise(
     metric_value = sum(metric_value),
@@ -159,11 +168,6 @@ df_prop_18 <- df_prop |>
   ) |>
   mutate(perc = if_else(is.nan(perc), 0, perc))
 
-
-
-
-
-
 # create weekly referral distributions
 df_refs <- df_wait |>
   filter(metric_id == "RES001ci") |>
@@ -179,7 +183,7 @@ df_refs <- df_wait |>
 
 # calculate percentage of 52+ waits
 df_waits_52 <- df_prop_52 |>
-  filter(waits_52 == 'More than 52') |>
+  filter(waits_52 == "More than 52") |>
   select(
     org_name,
     service,
@@ -190,7 +194,7 @@ df_waits_52 <- df_prop_52 |>
 
 # calculate percentage of <18 waits
 df_waits_18 <- df_prop_18 |>
-  filter(waits_18 == 'Less than 18') |>
+  filter(waits_18 == "Less than 18") |>
   select(
     org_name,
     service,
@@ -256,71 +260,80 @@ df_summary <- df_wait |>
     month == latest_date
   ) |>
   select(org_name,
-         service,
-         integrated_care_board_name,
-         total_waits = metric_value
+    service,
+    integrated_care_board_name,
+    total_waits = metric_value
   ) |>
   left_join(df_removals,
-            by = join_by(
-              org_name,
-              service
-            )
+    by = join_by(
+      org_name,
+      service
+    )
   ) |>
   left_join(df_refs,
-            by = join_by(
-              org_name,
-              service
-            )
+    by = join_by(
+      org_name,
+      service
+    )
   ) |>
   left_join(df_average,
-            by = join_by(
-              org_name,
-              service
-            )
+    by = join_by(
+      org_name,
+      service
+    )
   ) |>
   left_join(df_waits_52,
-            by = join_by(
-              org_name,
-              service
-            )
+    by = join_by(
+      org_name,
+      service
+    )
   ) |>
   left_join(df_waits_18,
-            by = join_by(
-              org_name,
-              service
-            )
+    by = join_by(
+      org_name,
+      service
+    )
   ) |>
   mutate(dq_tag = case_when(mean_removals < 0 ~ 1,
-                            is.na(sd_removals) ~ 1,
-                            mean_ref < 0 ~ 1,
-                            is.na(sd_ref) ~ 1,
-                            .default = 0
+    is.na(sd_removals) ~ 1,
+    mean_ref < 0 ~ 1,
+    is.na(sd_ref) ~ 1,
+    .default = 0
   ))
 
-
+cli_alert_success('Pre processing data before model - complete')
+cli_alert_info('Processing waiting list metrics')
 
 ############
 # WL Model #
 ############
 
-wks_to_target <- as.numeric(round(difftime(strptime(target_date, format = "%Y-%m-%d"),
-                                           strptime(latest_date, format = "%Y-%m-%d"),
-                                           units = "weeks"
+# calculate weeks to target date (52 week waits target)
+wks_to_target <- as.numeric(round(difftime(strptime(target_date, 
+                                                    format = "%Y-%m-%d"),
+  strptime(latest_date, format = "%Y-%m-%d"),
+  units = "weeks"
 ), 0))
 
-wks_to_target_18 <- as.numeric(round(difftime(strptime(target_date_18, format = "%Y-%m-%d"),
-                                              strptime(latest_date, format = "%Y-%m-%d"),
-                                              units = "weeks"
+# calculate weeks to target date (18 week waits target)
+wks_to_target_18 <- as.numeric(round(difftime(strptime(target_date_18, 
+                                                       format = "%Y-%m-%d"),
+  strptime(latest_date, format = "%Y-%m-%d"),
+  units = "weeks"
 ), 0))
 
-
+# use the NHSR waiting library to calculate waiting list metrics 
 df_model <- df_summary |>
   mutate(
     wl_load = calc_queue_load(mean_ref, mean_removals),
-    target_mean_wait = calc_target_mean_wait(waiting_time_target, achievement_value),
-    target_mean_wait_18 = calc_target_mean_wait(waiting_time_target_18, achievement_value_18),
-    target_queue_size = calc_target_queue_size(mean_ref, waiting_time_target),
-    target_queue_size_18 = calc_target_queue_size(mean_ref, waiting_time_target_18),
+    target_mean_wait = calc_target_mean_wait(waiting_time_target, 
+                                             achievement_value),
+    target_mean_wait_18 = calc_target_mean_wait(waiting_time_target_18, 
+                                                achievement_value_18),
+    target_queue_size = calc_target_queue_size(mean_ref, 
+                                               waiting_time_target),
+    target_queue_size_18 = calc_target_queue_size(mean_ref, 
+                                                  waiting_time_target_18),
     queue_ratio = total_waits / target_queue_size,
     queue_ratio_18 = total_waits / target_queue_size_18,
     additional_capacity = calc_relief_capacity(
@@ -343,8 +356,8 @@ df_model <- df_summary |>
       mean_waits,
       waiting_time_target_18
     ),
-    coef_ref = sum((1/sd_ref) / (1/mean_ref)),
-    coef_rem = sum((1/sd_removals) / (1/mean_removals)),
+    coef_ref = sum((1 / sd_ref) / (1 / mean_ref)),
+    coef_rem = sum((1 / sd_removals) / (1 / mean_removals)),
     tar_capacity = calc_target_capacity(
       demand = mean_ref,
       target_wait = waiting_time_target,
@@ -359,34 +372,40 @@ df_model <- df_summary |>
       cv_demand = coef_ref,
       cv_capacity = coef_rem
     ) * 1.1,
-    
-    
     .by = c(org_name, service)
   )
 
-saveRDS(df_model, 'df_model.rds')
+saveRDS(df_model, "df_model.rds")
 
 # 12 month forecast dates
-dts <- data.frame(date = seq.Date(from = latest_date %m+% months(1),
-                                  to = target_date_18,
-                                  by = "month"))
+dts <- data.frame(date = seq.Date(
+  from = latest_date %m+% months(1),
+  to = target_date_18,
+  by = "month"
+))
 
 # create dataframe with blank dates to insert predictions
 trajectory <- crossing(df_model, dts)
 
 # create a linear trajectory to target
 trajectory <- trajectory |>
-  mutate(traj = case_when(date == min(date) ~ total_waits,
-                          date == floor_date(target_date, 'month') ~ target_queue_size,
-                          date > target_date ~ target_queue_size,
-                          .default = NA),
-         traj_18 = case_when(date == min(date) ~ total_waits,
-                             date == floor_date(target_date_18, 'month') ~ target_queue_size_18,
-                             .default = NA
-         )) |>
-  mutate(traj = na.interp(traj),
-         traj_18 = na.interp(traj_18))
+  mutate(
+    traj = case_when(date == min(date) ~ total_waits,
+      date == floor_date(target_date, "month") ~ target_queue_size,
+      date > target_date ~ target_queue_size,
+      .default = NA
+    ),
+    traj_18 = case_when(date == min(date) ~ total_waits,
+      date == floor_date(target_date_18, "month") ~ target_queue_size_18,
+      .default = NA
+    )
+  ) |>
+  mutate(
+    traj = na.interp(traj),
+    traj_18 = na.interp(traj_18)
+  )
 
+# crate dataframe of services qith dq issues
 dq_issues <- df_model |>
   filter(
     dq_tag == 1,
@@ -402,7 +421,8 @@ dq_issues <- df_model |>
     perc_18
   )
 
-dq_tab <-dq_issues |>
+# create a table of dq issues for report
+dq_tab <- dq_issues |>
   gt() |>
   fmt_number(
     columns = c(total_waits, num_52, num_18),
@@ -424,18 +444,21 @@ dq_tab <-dq_issues |>
     perc_18 = "Percentage waiting under 18 wks"
   ) |>
   opt_row_striping(row_striping = FALSE) |>
-  opt_table_font(font = 'Gill Sans MT', size = px(12)) |>
+  opt_table_font(font = "Gill Sans MT", size = px(12)) |>
   tab_header(
-    title = paste0("Community Services waits as at ", format(latest_date, "%B %y"), " : Services with data qualitiy issues"),
+    title = paste0("Community Services waits as at ", 
+                   format(latest_date, "%B %y"), 
+                   " : Services with data qualitiy issues"),
     subtitle = md("These service lines are identified later as not suitable for modelling")
   ) |>
   tab_footnote(
     footnote = md(paste0(
       "Data taken from Community Health Services (CHS) SitRep downloaded as at ",
       format(Sys.Date(), "%Y-%m-%d")
-    )))
+    ))
+  )
 
-saveRDS(dq_tab, 'dq_tab.rds')
+saveRDS(dq_tab, "dq_tab.rds")
 
 # filter to those with > threshold number of 52 week waits
 # also drop those waiting lists where there is a dq tag.
@@ -449,10 +472,12 @@ wl_model <- df_model |>
     chk = if_else(total_waits < target_queue_size, 1, 0)
   )
 
+# filter to those with > threshold number of 18 week waits
+# also drop those waiting lists where there is a dq tag.
 wl_model_18 <- df_model |>
   filter(
     num_18 >= threshold,
-    perc_18 < 92,
+    perc_18 < target_18*100,
     dq_tag == 0
   ) |>
   arrange(-num_18) |>
@@ -460,6 +485,7 @@ wl_model_18 <- df_model |>
     chk = if_else(total_waits < target_queue_size, 1, 0)
   )
 
+# join the 52 week and 18 week models together
 wl_model <- wl_model |>
   bind_rows(wl_model_18) |>
   distinct() |>
@@ -477,56 +503,63 @@ over_52 <- df_prop_52 |>
     org_name,
     -perc
   ) |>
-  inner_join(wl_model|> select (org_name, service))
+  inner_join(wl_model |> 
+               select(org_name, 
+                      service),
+             by = join_by(org_name, 
+                          service))
 
-# filter our dataframe to just those over 52 weeks
+# filter our dataframe to just those over 18 week target
 over_18 <- df_prop_18 |>
   filter(
     waits_18 == "Less than 18",
-    perc < 92,
+    perc < target_18*100,
     metric_value > 0
   ) |>
   arrange(
     org_name,
     -perc
-  )|>
-  inner_join(wl_model |> select (org_name, service))
+  ) |>
+  inner_join(wl_model |> 
+               select(org_name, 
+                      service),
+             by = join_by(org_name, 
+                          service))
 
 
-saveRDS(over_52, 'over_52.rds')
-saveRDS(over_18, 'over_18.rds')
-
-
-# 
-# # create empty dataframe to collect results
-# combined_data <- data.frame()
-# 
-# # run model for all   
-# cli_progress_bar("processing data", total = max(wl_model$row_no))
-# 
-# for (i in (1:max(wl_model$row_no))) {
-#   combined_data <- combined_data |>
-#     bind_rows(create_peformance_dataframe(i))
-#   cli_progress_update()
-# 
-# }
-# 
-# combined_data <-  combined_data |>
-#   mutate(include_52 = if_else(num_52 > 0, 1, 0),
-#          include_18 = if_else(perc_18 < 92, 1, 0)) |>
-#   fill(include_52, .direction = 'up') |>
-#   fill(include_18, .direction = 'up') |>
-#   fill(org_name, .direction = 'down') |>
-#   fill(service, .direction = 'down')
-# 
-# saveRDS(combined_data, "combined_data.rds")
-combined_data <- readRDS('combined_data.rds')
+saveRDS(over_52, "over_52.rds")
+saveRDS(over_18, "over_18.rds")
 
 
 
+# create empty dataframe to collect results
+combined_data <- data.frame()
 
+# run model for all
+cli_alert_success('Processing waiting list metrics - complete')
+cli_alert_warning('Starting modelling loop - this may take some time')
+cli_alert(paste0('Started at: ',now()))
+cli_progress_bar("processing data", total = max(wl_model$row_no))
 
+for (i in (1:max(wl_model$row_no))) {
+  combined_data <- combined_data |>
+    bind_rows(create_peformance_dataframe(i))
+  cli_progress_update()
+}
 
+combined_data <- combined_data |>
+  mutate(
+    include_52 = if_else(num_52 > 0, 1, 0),
+    include_18 = if_else(perc_18 < 92, 1, 0)
+  ) |>
+  fill(include_52, .direction = "up") |>
+  fill(include_18, .direction = "up") |>
+  fill(org_name, .direction = "down") |>
+  fill(service, .direction = "down")
 
+cli_alert_success('Modelling loop - complete')
 
+saveRDS(combined_data, "combined_data.rds")
+combined_data <- readRDS("combined_data.rds")
 
+cli_alert('Building quarto output')

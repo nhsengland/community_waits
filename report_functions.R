@@ -84,9 +84,7 @@ over_x_tab <-  function (data, org, selection) {
 #over_x_tab(over_18, 'CORNWALL PARTNERSHIP', 'waits_18')
 
 
-
 provider_model_table <- function(org, waits)  {
-  
   
   tab_data <- if(waits == '52') 
   {df_model |>
@@ -576,8 +574,6 @@ plot_predictions_trajectory <- function(org, serv, traj = F, wait) {
   iteration <- wl_model |>
     filter(org_name == org,
            service == serv)
-  
-  
   
   # plot predictions + target + trajectory
   plot <- com |>

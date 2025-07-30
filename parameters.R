@@ -1,6 +1,3 @@
-# variables
-
-
 #####################
 # report parameters #
 #####################
@@ -37,5 +34,7 @@ target_date_18 <- as.Date("2027-03-31")
 
 calibration <- 12
 
-
+# These can be changed to support the main report.  However a number of features
+# are currently hardcoded in the output report.  If parameters are changed, please
+# double check that this is reflected in the output
 

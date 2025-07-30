@@ -45,6 +45,7 @@ execute:
 ---
 
 ```{r}
+
 source('libraries.R')
 source('parameters.R')
 source('report_functions.R')
@@ -187,7 +188,8 @@ For waiting lists that have at least 50 patients waiting over 18 weeks and where
 ::: {.callout-note}
 # NOTE  
 
-These predictions are based purely on historic demand and capacity and do not take into account seasonal variation or other features. They are based upon a stochastic application of referrals and removal distributions. 
+These predictions are based purely on historic demand and capacity and do not take into account seasonal variation or other features such as recent trend. They are based upon a stochastic application of referrals and removal distributions. 
+
 :::
 
 ### Waiting list predictions by provider and service.
@@ -232,11 +234,11 @@ Utilising the principles of Little's laws we can assert certain facts about the 
 
 The first principle is that capacity must be larger than demand, otherwise the waiting list size will grow indefinitely.
 
-We can calculate the load by comparing the demand to the capacity. This is not a straight ratio, but takes into account statistical variation.  
+We can calculate the load by comparing the demand to the capacity. This is not a straight ratio, but takes into account the statistical variation.  
 
 If the load is greater than 1, then the waiting list is unstable, and the waiting list will grow indefinitely. If the load is less than 1, then the waiting list will be stable, and the load is the proportion of the time that that waiting list is non-empty.
 
-If the load on a waiting list is less than 1 then the chance of missing the target halves each time we increase the target by some fixed number of days.
+If the load on a waiting list is less than 1 then the chance of missing the target halves each time we increase the target by some fixed time.  In the modelling here we have specified the target times at 52 weeks and 18 weeks.  
 
 ### (ii) Target waiting time
 
@@ -284,7 +286,7 @@ There are tabs for the 52 week wait modelling as well as modelling to achieve 92
 #| results: asis
 #| echo: false
 #| warning: false
- 
+
 over_18_orgs <- unique(over_18$org_name)
 over_52_orgs <- unique(over_52$org_name)
 
@@ -335,79 +337,74 @@ These graphs show the modeled 52 / 18 week waits, with predictions and required 
 #| echo: false
 #| warning: false
 #| fig-width: 14
-
+ 
 over_18_orgs <- unique(over_18$org_name)
 over_52_orgs <- unique(over_52$org_name)
+ 
+ # Start the outermost panel-tabset
 
-# Start the outermost panel-tabset
-#cat("---\n") # Add a horizontal rule for better separation, optional
-cat(":::{.panel-tabset}\n\n")
+ cat(":::{.panel-tabset}\n\n")
+ 
+ waits <- c("waits_52", "waits_18")
+ 
+ for (i in waits) {
+   label <- if (i == "waits_18") {
+     "18 week waits"
+   } else {
+     "Over 52 week waits"
+   }
+ 
+   list_of_orgs <- if (i == "waits_18") {
+     over_18_orgs
+   } else {
+     over_52_orgs
+   }
+ 
+   # Level 1 Heading for the tab
+   cat("## ", label, "\n\n")
+ 
+   # Start the second level panel-tabset for organizations
+   cat(":::{.panel-tabset}\n\n")
+ 
+   for (j in list_of_orgs) {
+     # Level 3 Heading for each organization tab
+     cat("### ", j, "\n") # Newline directly after heading for consistency
+ 
+     # Start the third level panel-tabset for services within each organization
+     cat(':::{.panel-tabset}\n\n')
+ 
+     list_of_services <- if (i == "waits_18") {
+     unique(over_18$service[over_18$org_name == j])
+   } else {
+      unique(over_52$service[over_52$org_name == j])
+   }
 
-waits <- c("waits_52", "waits_18")
+     cat("\n\n")
+ 
+ 
+     for (k in list_of_services) {
+       w <- if_else(i == "waits_52", 52, 18)
+ 
+       # Level 4 Heading for each service tab
+       cat("#### ", k, "\n\n")
+       # Content for each service
+       p <- plot_predictions_trajectory(j, k, T, w)
+       print(p)
+       cat("\n\n")
+ 
+     } # End of service loop
+ 
+     # Close the third level panel-tabset (services)
+     cat(":::\n\n")
+    } # End of organization loop
+ 
+   # Close the second level panel-tabset (organisations)
+   cat(":::\n\n")
+ } # End of waits loop
+ 
+ # Close the outermost panel-tabset
+ cat(":::\n\n") # No extra newline at the very end
 
-for (i in waits) {
-  label <- if (i == "waits_18") {
-    "18 week waits"
-  } else {
-    "Over 52 week waits"
-  }
-
-  list_of_orgs <- if (i == "waits_18") {
-    over_18_orgs
-  } else {
-    over_52_orgs
-  }
-
-  # Level 1 Heading for the tab
-  cat("## ", label, "\n\n")
-
-  # Start the second level panel-tabset for organizations
-  cat(":::{.panel-tabset}\n\n")
-
-  for (j in list_of_orgs) {
-    # Level 3 Heading for each organization tab
-    cat("### ", j, "\n") # Newline directly after heading for consistency
-
-    # Start the third level panel-tabset for services within each organization
-    cat(':::{.panel-tabset}\n\n')
-
-    list_of_services <- if (i == "waits_18") {
-    unique(over_18$service[over_18$org_name == j])
-  } else {
-     unique(over_52$service[over_52$org_name == j])
-  }
-
-    # You had 'cat(i, j)' here. This will print directly into the tab content.
-    # Consider if you want this text, or if it's for debugging.
-    # If it's for debugging, you might remove it in the final version.
-    cat("\n\n")
-
-
-    for (k in list_of_services) {
-      w <- if_else(i == "waits_52", 52, 18)
-
-      # Level 4 Heading for each service tab
-      cat("#### ", k, "\n\n")
-
-      # Your placeholder content for each service
-      # Ensure this content is properly formatted Markdown if you want specific rendering
-      p <- plot_predictions_trajectory(j, k, T, w)
-      print(p)
-      cat("\n\n")
-
-    } # End of service loop
-
-    # Close the third level panel-tabset (services)
-    cat(":::\n\n")
-   } # End of organization loop
-
-  # Close the second level panel-tabset (organizations)
-  cat(":::\n\n")
-} # End of waits loop
-
-# Close the outermost panel-tabset
-cat(":::\n\n") # No extra newline at the very end
-#cat("---\n") # Add a horizontal rule, optional
 
 
 ```
@@ -437,10 +434,14 @@ The analysis gives two three key metrics, that of size of waiting list to achiev
  
 ## Data quality and future enhancements
  
-The scope of this report was limited to the national target of zero patients waiting over 52 weeks by March 2026. In addition an 18 week ambition by March 2027 was included.  The model has functions that would allow these goals to be adjusted.   
+The scope of this report was limited to the national target of zero patients waiting over 52 weeks by March 2026. In addition an 18 week ambition by March 2027 was included.  The model has functions that would allow these goals to be adjusted. 
+
+Future predictions are calibrated utilising data from the preceding 12-month period. All alterations to data recording practices within this timeframe are incorporated without subsequent adjustment or normalization. It has been observed that procedural modifications may have occurred in specific service lines, particularly regarding the reclassification of services from the elective waiting list to the community waiting list. Consequently, the historical data may exhibit inconsistencies across certain datasets. This potential lack of data homogeneity could introduce confounding variables, potentially leading to spurious or unrepresentative analytical outcomes in this analysis. 
+
+The SitRep dataset is submitted on a monthly basis and this analysis does not adjust for number of days in month or potential for bank holidays.  This is mitigated by calibrating the model on a full calendar year. A more granular dataset could further enhance this. 
 
 A significant limitation is the reliance on aggregate-level situation report (sit rep) data, which is characterised by its poor quality. This precludes data verification and issue identification at a patient level. Prospective data sources, such as Faster Data Flows (FDF) data, offer a potential solution. FDF data, being patient-level, would enable patient-level assurance and a more precise understanding of patient pathways. Furthermore, linking patient-level datasets with activity data could provide a deeper understanding of the capacity required to clear waiting lists. 
-
+  
 Another potential data source would be the Community Services Dataset (CSDS), but this is not currently utilised to measure waiting lists.  The nationally published source of community waits is the sitrep and so that is what has been applied.
 
 The underlying model can be adjusted to look at different scenarios around referral rates, such as a 'what if' referral rates increase.  
@@ -451,9 +452,11 @@ Despite the inherent limitations in data robustness, this analysis retains consi
 
 The task here is to work out how large the waiting list can grow whilst still meeting target, setting a time period to do it over, then reducing capacity accordingly. Again that the optimisation characteristics are based on the zero at 52 weeks, perhaps a more robust plan would be around achievement of the 18 week target, however this does not currently apply as a commissioned target to community waiting lists.  
 
-Scenario modelling was outside the scope of this analysis, but could be added into the workflow at a later stage.
+Scenario modelling was outside the scope of this analysis, but could be added into the workflow at a later stage.  This could look at impact on services based on a potential change in demand or capacity.  
 
-The model is open source and can easily be adapted based on more assured local data sources.  The code to create the model is open source and could be pointed at a different data source in order to get more localised assurance of the data.  
+The model is open source and can easily be adapted based on more assured local data sources.  The code to create the model is open source and could be pointed at a different data source in order to get more localised assurance of the data.  It could also be utilised to model potential scenarios.  
+
+It is hoped that this analysis helps identify gaps in services and to give an understanding of the underlying waiting list metrics and the magnitude of pressures.  It can be utilised to support planning and identify areas of investment or potential opportunity to reallocate resources in a targeted way.   
 
 # Confidentiality 
 
