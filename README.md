@@ -51,6 +51,15 @@ The main engine of the analysis is based on the NHSR  Waiting list project.
 
 Walton N, Dray M, Smith T, Mainey C (2025). NHSRwaitinglist: Waiting List Metrics Using Queuing Theory. R package version 0.1.1, https://nhs-r-community.github.io/NHSRwaitinglist/.
 
+To run this analysis, open the R project.
+
+Open the run file
+
+Change the region to the nsame of the region you wish to run the analysis for.
+
+Run the run file script.
+
+An outt will be created and named based on the date of the latest data and region selected.
 
 #### Outputs
 The report produces an interactive quarto document.
